@@ -63,3 +63,18 @@ with open('dataset.jsonl', 'r') as file:
 
 # Save the final model
 model.save('model.h5')
+def generate_output(input_text, model, tokenizer):
+    input_seq = tokenizer.texts_to_sequences([input_text])
+    input_seq = pad_sequences(input_seq, maxlen=max_sequence_length, padding='post')
+    predicted_seq = model.predict(input_seq)[0]
+    predicted_text = tokenizer.sequences_to_texts([np.argmax(predicted_seq, axis=-1)])[0]
+    return predicted_text
+# Load the model
+loaded_model = tf.keras.models.load_model('model.h5')
+
+# Inference function remains the same as in the previous code
+
+# Example of using the model for inference
+user_input = "What is the capital of France?"
+output_text = generate_output(user_input, loaded_model, tokenizer)
+print(f"Response: {output_text}")
