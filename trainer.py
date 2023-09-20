@@ -3,58 +3,50 @@ import numpy as np
 import tensorflow as tf
 from keras.preprocessing.text import Tokenizer
 from keras.preprocessing.sequence import pad_sequences
-from keras.layers import Embedding, LSTM, Dense, Bidirectional
+from keras.layers import Embedding, LSTM, Dense, Dropout, Bidirectional
 from keras.optimizers import Adam
+from keras.callbacks import EarlyStopping
 
-# Function to preprocess and train on a chunk of data using Rust
+# Function to preprocess and train on a chunk of data
 def preprocess_and_train(data, model, tokenizer, max_sequence_length, batch_size):
-    processed_input, processed_output = preprocess_data(data, tokenizer, max_sequence_length)
-    model.fit(processed_input, processed_output, batch_size=batch_size, epochs=1, verbose=1)
+    X_train, y_train = preprocess_data(data, tokenizer, max_sequence_length)
+    
+    early_stopping = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+    
+    history = model.fit(X_train, y_train, epochs=100, batch_size=batch_size,
+                        validation_split=0.2, verbose=2, callbacks=[early_stopping])
+    
     return model
 
-
+# Function to preprocess a batch of data
 def preprocess_data(data, tokenizer, max_sequence_length):
-    # Perform preprocessing here
-    # Replace this with your actual preprocessing logic
+    inputs = [item['input'] for item in data]
+    outputs = [item['output'] for item in data]
 
-    # Initialize empty lists to hold processed input and output data
-    processed_input_data = []
-    processed_output_data = []
+    input_sequences = tokenizer.texts_to_sequences(inputs)
+    output_sequences = tokenizer.texts_to_sequences(outputs)
 
-    for item in data:
-        # Process and convert input data (string) into suitable format
-        input_sequence = tokenizer.texts_to_sequences([item['input']])
-        input_sequence = pad_sequences(input_sequence, maxlen=max_sequence_length, padding='post')
-        processed_input_data.append(input_sequence)
+    input_sequences = pad_sequences(input_sequences, maxlen=max_sequence_length, padding='post')
+    output_sequences = pad_sequences(output_sequences, maxlen=max_sequence_length, padding='post')
 
-        # Process and convert output data (string) into suitable format
-        output_sequence = tokenizer.texts_to_sequences([item['output']])
-        output_sequence = pad_sequences(output_sequence, maxlen=max_sequence_length, padding='post')
-        processed_output_data.append(output_sequence)
+    return input_sequences, output_sequences
 
-    # Convert processed data into NumPy arrays
-    processed_input_data = np.array(processed_input_data)
-    processed_output_data = np.array(processed_output_data)
-
-    return processed_input_data, processed_output_data
-
-# Main training loop (Python part)
+# Main training loop
 chunk_size = 1000  # Set an appropriate chunk size
 batch_size = 32
 data = []
-max_size = 50*2**20
+
 with open('dataset.jsonl', 'r') as file:
     tokenizer = Tokenizer()  # Initialize tokenizer once
+    model = None  # Initialize model once
+    max_sequence_length = None  # Initialize max_sequence_length once
+
     for line in file:
         item = json.loads(line)
-        max_size += len(line)  # Approximate JSON string length as data size
+        data.append(item)
 
-        # Append the item to the data list if it doesn't exceed the memory limit
-        if max_size <= max_size:
-            data.append(item)
-        else:
-            # If the memory limit is reached, preprocess and train the model
-            if tokenizer.word_index == {}:
+        if len(data) >= chunk_size:
+            if tokenizer.word_index == {}:  # Build the tokenizer only once
                 tokenizer.fit_on_texts([item['input'] for item in data] + [item['output'] for item in data])
                 vocab_size = len(tokenizer.word_index) + 1
                 max_sequence_length = max(len(seq) for seq in data)
@@ -70,18 +62,11 @@ with open('dataset.jsonl', 'r') as file:
                 optimizer = Adam(learning_rate=0.001)
                 model.compile(loss='sparse_categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
 
-            # Perform preprocessing on the chunk
-            processed_input, processed_output = preprocess_data(data, tokenizer, max_sequence_length)
+            # Train the model on the current chunk
+            model = preprocess_and_train(data, model, tokenizer, max_sequence_length, batch_size)
 
-            # Train the model on the preprocessed data
-            model.fit(processed_input, processed_output, batch_size=batch_size, epochs=1, verbose=1)
-            
             # Clear the batch to release memory
             data = []
-
-if data:
-    print(f"Processing remaining {len(data)} items.")
-    model = preprocess_and_train(data, model, tokenizer, max_sequence_length, batch_size)
 
 # Save the final model
 model.save('model.h5')
@@ -95,6 +80,8 @@ def generate_output(input_text, model, tokenizer):
 
 # Load the model
 loaded_model = tf.keras.models.load_model('model.h5')
+
+# Inference function remains the same as in the previous code
 
 # Example of using the model for inference
 user_input = "What is the capital of France?"
